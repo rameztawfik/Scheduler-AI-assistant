@@ -1,6 +1,7 @@
 # Scheduler-AI-assistant
 Concept repo for the usage of an AI as an assistant chat bot for the the project manger, construction mangers and stakeholders to follow up on the planned and actual project status.
-
+Data were exported from Primavera P6 from an older real construction project.
+Headers naming are very case sensetive.
 
 # Local LLM Fine-Tuning Guide (assumed 8 GB GPU)
 
@@ -60,7 +61,7 @@ pip install bitsandbytes openpyxl pandas tqdm evaluate gradio
 # (Optional) Axolotl trainer (we'll use it)
 pip install axolotl
 
-
+```
 ---
 
 ## 3) Put your Excel in the project folder
@@ -68,6 +69,70 @@ pip install axolotl
 
 Place your file as:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   C:\Users\\my_project\construction.xlsx   `
+```makefile
 
-It must have headers exactly:**ActivityID, ActivityName, Predecessor, Successor**
+C:\Users\<YOU>\my_project\construction.xlsx
+
+
+```
+
+It must have headers in the exact order (naming could be changed accordinglly):**Predecessor_id, Successor_id, Relationship_typ, Predecessor_activ_status, Successor_activ_status, lag(d), Predecessor_activ_name, Successor_activ_name**
+
+---
+
+## 4) Make the data converter (Excel → JSONL) // so it can be trained 
+
+In VS Code, create a file prepare_data.py in my_project and paste:
+
+```python
+import pandas as pd
+import json
+from pathlib import Path
+
+xlsx = "construction.xlsx"   # your Excel file
+out_dir = Path("./data")
+out_dir.mkdir(exist_ok=True, parents=True)
+
+df = pd.read_excel(xlsx).fillna("").astype(str)
+
+required = ["Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"]]
+missing = [c for c in required if c not in df.columns]
+if missing:
+    raise SystemExit(f"Missing columns: {missing}")
+
+records = []
+for _, r in df.iterrows():
+    instr = "Given the predecessor details, predict the successor activity ID and name, and justify briefly."
+    inp = (
+        f"Predecessor_id: {r['Predecessor_id']}\n"
+        f"Predecessor_activ_name: {r['Predecessor_activ_name']}\n"
+        f"Relationship_typ: {r['Relationship_typ']}"
+    )
+    out = r["Successor_activ_name"].strip()
+    if out == "":
+        continue
+    records.append({"instruction": instr, "input": inp, "output": out})
+
+n = len(records)
+val_n = max(1, int(n * 0.1))
+val = records[:val_n]
+train = records[val_n:]
+
+def dump(lst, path):
+    with open(path, "w", encoding="utf-8") as f:
+        for ex in lst:
+            f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+
+dump(train, out_dir / "train.jsonl")
+dump(val,   out_dir / "val.jsonl")
+print(f"✅ Wrote {len(train)} train and {len(val)} val examples to ./data")
+
+
+```
+Run it (Anaconda Prompt in my_project):
+
+```bash
+python prepare_data.py
+```
+
+You should now have data/train.jsonl and data/val.jsonl.

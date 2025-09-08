@@ -73,7 +73,6 @@ Place your file as:
 
 C:\Users\<YOU>\my_project\construction.xlsx
 
-
 ```
 
 It must have headers in the exact order (naming could be changed accordinglly):**Predecessor_id, Successor_id, Relationship_typ, Predecessor_activ_status, Successor_activ_status, lag(d), Predecessor_activ_name, Successor_activ_name**
@@ -136,3 +135,138 @@ python prepare_data.py
 ```
 
 You should now have data/train.jsonl and data/val.jsonl.
+---
+
+## 5) Fine-tune pythia-2.8b with QLoRA (Axolotl) 
+**this model was used due to my laptop capabilities, more stronger model is recommended to be used**
+**either by renting online GPU or via your company server** 
+
+
+Make `config.yaml` in the same folder:
+
+```yaml
+
+# config.yaml — tuned for ~8 GB VRAM
+base_model: EleutherAI/pythia-2.8b
+
+# 4-bit quantization (QLoRA)
+load_in_4bit: true
+bnb_4bit_compute_dtype: bfloat16
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+
+# LoRA
+adapter_type: lora
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+# Pythia/NeoX target modules:
+target_modules: ["q_proj","k_proj","v_proj","o_proj","dense_h_to_4h","dense_4h_to_h"]
+
+# Data
+datasets:
+  - path: ./data/train.jsonl
+    type: alpaca
+val_set_size: 0.1
+
+# Train efficiency knobs for 8 GB
+sequence_len: 512          # keep short to avoid OOM
+sample_packing: true
+gradient_checkpointing: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 32  # increases effective batch size without VRAM
+num_train_epochs: 2
+learning_rate: 2e-4
+weight_decay: 0.0
+lr_scheduler: cosine
+warmup_ratio: 0.03
+
+# Logging & output
+output_dir: ./outputs/pythia2.8b-lora
+logging_steps: 25
+eval_steps: 200
+save_steps: 200
+
+
+```
+
+Train:
+
+```bash
+axolotl train config.yaml
+
+```
+### If you see CUDA OOM:
+
+- Drop sequence_len to 384 or 256
+- Or increase gradient_accumulation_steps to 64
+- Or reduce LoRA size: lora_r: 4, lora_alpha: 8
+> You can attempt a 7B base (e.g., Pythia-6.9b) on 8 GB with sequence_len: 256, lora_r: 4, tighter settings, but 2.8B will be smoother and faster.
+---
+
+## 6) Quick sanity test / chat with the sheet (terminal UI)
+Create `chat_with_excel.py`:
+
+
+```python
+import pandas as pd
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
+
+BASE = "EleutherAI/pythia-2.8b"
+ADAPTER = "./outputs/pythia2.8b-lora"
+
+bnb = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True
+)
+
+tok = AutoTokenizer.from_pretrained(BASE, use_fast=True)
+tok.pad_token = tok.eos_token
+
+print("Loading base model (4-bit)...")
+base = AutoModelForCausalLM.from_pretrained(BASE, quantization_config=bnb, device_map="auto")
+model = PeftModel.from_pretrained(base, ADAPTER)
+device = next(model.parameters()).device
+print("Model ready on", device)
+
+df = pd.read_excel("construction.xlsx").fillna("").astype(str)
+
+def prompt_from_row(row, question):
+    parts = [f"{c}: {row[c]}" for c in ["ActivityID","ActivityName","Predecessor","Successor"] if c in row.index and row[c].strip()]
+    ctx = "\n".join(parts)
+    return f"### Instruction:\n{question}\n\n### Input:\n{ctx}\n\n### Response:\n"
+
+while True:
+    s = input(f"Row index 0..{len(df)-1} (or 'q'): ").strip()
+    if s.lower() == "q": break
+    try:
+        i = int(s)
+        row = df.iloc[i]
+    except:
+        print("Invalid index"); continue
+    q = input("Question (default: 'Predict successor and rationale'): ").strip() or "Predict successor and provide a brief rationale."
+    enc = tok(prompt_from_row(row, q), return_tensors="pt").to(device)
+    out = model.generate(**enc, max_new_tokens=160)
+    print(tok.decode(out[0], skip_special_tokens=True))
+    print("-----")
+
+```
+
+RUN:
+```bash
+python chat_with_excel.py
+```
+You can enter a row index and ask questions like:
+what is the successor and provide a brief rationale.”
+“If predecessor is missing, what’s the likely next activity?” etc.
+
+---
+
+
+
+
+

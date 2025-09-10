@@ -5,7 +5,7 @@ Headers naming are very case sensetive.
 
 # Local LLM Fine-Tuning Guide (assumed 8 GB GPU)
 
-## Requirements
+## Requirements on local user friendly Laptop/PC
 
 - **OS**: Windows 10/11 (Admin rights required)  
 - **GPU**: The Higher the GPU the better
@@ -13,8 +13,8 @@ Headers naming are very case sensetive.
 - **Disk**: 25–40 GB free (model + caches + outputs)  
 - **Time**: A few hours for installs + training time (varies by dataset size) -- a simple excel was used as a proof case  
 
-> ⚠️ If `bitsandbytes` (4-bit loader) fails on native Windows, switch to **WSL2 (Ubuntu)** *ASK AI Tool*.  
-This avoids Windows build issues while still running locally.
+> ⚠️ If `bitsandbytes` (4-bit loader) fails on native Windows, try `pip uninstall bitsandbytes -y && pip install bitsandbytes` This avoids Windows build issues while still running locally.
+> If still failing, use WSL2 (Ubuntu) and repeat the same steps there (still local).  
 
 ---
 
@@ -265,8 +265,158 @@ what is the successor and provide a brief rationale.”
 “If predecessor is missing, what’s the likely next activity?” etc.
 
 ---
+---
+---
+
+# Local LLM Fine-Tuning Guide (assumed 8 GB GPU)
+
+## Requirements for on-cloud GPU servis
+
+- For fine-tuning large models, you need at least 40–80 GB VRAM. 
+  - use can use RUNPod.io, lambda cloud, paperspace or others.
+  - **GPU**: A100 80GB is recommended since easiest setup, affordable, works with Hugging Face/Axolotl out of the box.
+
+---
+
+## 1) Connect to your cloud instance
+
+- Usually all provided services provid a JupyterLab + SSH environment.
+  - for coding cells → use JupyterLab (like a notebook).
+  - If you prefer terminal commands → open “SSH” from the dashboard.
 
 
+---
 
+---
+
+## 2) Environment setup
+
+```bash
+# Update system
+sudo apt-get update -y && sudo apt-get upgrade -y
+
+# Install Git + Miniconda
+sudo apt-get install -y git wget
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda
+echo 'export PATH="$HOME/miniconda/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Create project folder + conda env
+mkdir ~/my_project && cd ~/my_project
+conda create -n llm_train python=3.10 -y
+conda activate llm_train
+```
+Install the dependencies:
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install transformers datasets accelerate peft trl huggingface_hub bitsandbytes
+pip install pandas openpyxl tqdm evaluate gradio
+pip install axolotl
+```
+
+---
+
+---
+
+## 3) Upload your Excel file
+
+Use the JupyterLab file browser to upload your `construction.xlsx` into `~/my_project`.
+
+Make sure it has the columns:
+"Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"
+
+---
+
+---
+
+## 4) Convert Excel → JSONL (for training data)
+
+Create `prepare_data.py` in JupyterLab and paste the following code>>>
+
+```python
+import pandas as pd, json
+from pathlib import Path
+
+xlsx = "construction.xlsx"
+out = Path("./data"); out.mkdir(parents=True, exist_ok=True)
+
+df = pd.read_excel(xlsx).fillna("").astype(str)
+
+records = []
+for _, r in df.iterrows():
+    instr = "Given the activity details, predict the successor activity."
+    inp = f"ActivityID: {r['ActivityID']}\nActivityName: {r['ActivityName']}\nPredecessor: {r['Predecessor']}"
+    outp = r["Successor"].strip()
+    if outp: records.append({"instruction": instr, "input": inp, "output": outp})
+
+n = len(records)
+val_n = max(1, int(n*0.1))
+train, val = records[val_n:], records[:val_n]
+
+def dump(lst, path): 
+    with open(path,"w",encoding="utf-8") as f:
+        for ex in lst: f.write(json.dumps(ex)+"\n")
+
+dump(train,"data/train.jsonl"); dump(val,"data/val.jsonl")
+print(f"✅ {len(train)} train / {len(val)} val examples ready")
+```
+
+RUN
+```bash
+python prepare_data.py
+```
+---
+
+---
+
+## 5) Training config (GPT-NeoX-20B)
+
+Create `config.yaml`:
+
+```yaml
+# Using GPT-NeoX 20B as base
+base_model: EleutherAI/gpt-neox-20b
+
+# QLoRA config
+load_in_4bit: true
+bnb_4bit_compute_dtype: bfloat16
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+
+# LoRA adapter
+adapter_type: lora
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.05
+target_modules: ["query_key_value"]
+
+# Data
+datasets:
+  - path: ./data/train.jsonl
+    type: alpaca
+val_set_size: 0.1
+
+# Training
+sequence_len: 1024
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 16
+num_train_epochs: 2
+learning_rate: 2e-4
+lr_scheduler: cosine
+warmup_ratio: 0.03
+
+# Misc
+gradient_checkpointing: true
+sample_packing: true
+output_dir: ./outputs/neox20b-lora
+logging_steps: 20
+save_steps: 200
+eval_steps: 200
+
+```
+
+---
 
 

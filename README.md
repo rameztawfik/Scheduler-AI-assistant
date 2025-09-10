@@ -63,9 +63,7 @@ pip install axolotl
 
 ```
 ---
-
 ## 3) Put your Excel in the project folder
-
 
 Place your file as:
 
@@ -74,9 +72,7 @@ Place your file as:
 C:\Users\<YOU>\my_project\construction.xlsx
 
 ```
-
 It must have headers in the exact order (naming could be changed accordinglly):**Predecessor_id, Successor_id, Relationship_typ, Predecessor_activ_status, Successor_activ_status, lag(d), Predecessor_activ_name, Successor_activ_name**
-
 ---
 
 ## 4) Make the data converter (Excel → JSONL) // so it can be trained 
@@ -125,15 +121,11 @@ def dump(lst, path):
 dump(train, out_dir / "train.jsonl")
 dump(val,   out_dir / "val.jsonl")
 print(f"✅ Wrote {len(train)} train and {len(val)} val examples to ./data")
-
-
 ```
 Run it (Anaconda Prompt in my_project):
-
 ```bash
 python prepare_data.py
 ```
-
 You should now have data/train.jsonl and data/val.jsonl.
 ---
 
@@ -141,11 +133,9 @@ You should now have data/train.jsonl and data/val.jsonl.
 **this model was used due to my laptop capabilities, more stronger model is recommended to be used**
 **either by renting online GPU or via your company server** 
 
-
 Make `config.yaml` in the same folder:
 
 ```yaml
-
 # config.yaml — tuned for ~8 GB VRAM
 base_model: EleutherAI/pythia-2.8b
 
@@ -186,15 +176,10 @@ output_dir: ./outputs/pythia2.8b-lora
 logging_steps: 25
 eval_steps: 200
 save_steps: 200
-
-
 ```
-
 Train:
-
 ```bash
 axolotl train config.yaml
-
 ```
 ### If you see CUDA OOM:
 
@@ -206,8 +191,6 @@ axolotl train config.yaml
 
 ## 6) Quick sanity test / chat with the sheet (terminal UI)
 Create `chat_with_excel.py`:
-
-
 ```python
 import pandas as pd
 import torch
@@ -253,9 +236,7 @@ while True:
     out = model.generate(**enc, max_new_tokens=160)
     print(tok.decode(out[0], skip_special_tokens=True))
     print("-----")
-
 ```
-
 RUN:
 ```bash
 python chat_with_excel.py
@@ -265,10 +246,8 @@ what is the successor and provide a brief rationale.”
 “If predecessor is missing, what’s the likely next activity?” etc.
 
 ---
----
----
 
-# Local LLM Fine-Tuning Guide (assumed 8 GB GPU)
+# On-Cloud LLM Fine-Tuning Guide
 
 ## Requirements for on-cloud GPU servis
 
@@ -277,16 +256,11 @@ what is the successor and provide a brief rationale.”
   - **GPU**: A100 80GB is recommended since easiest setup, affordable, works with Hugging Face/Axolotl out of the box.
 
 ---
-
 ## 1) Connect to your cloud instance
 
 - Usually all provided services provid a JupyterLab + SSH environment.
   - for coding cells → use JupyterLab (like a notebook).
   - If you prefer terminal commands → open “SSH” from the dashboard.
-
-
----
-
 ---
 
 ## 2) Environment setup
@@ -315,9 +289,6 @@ pip install transformers datasets accelerate peft trl huggingface_hub bitsandbyt
 pip install pandas openpyxl tqdm evaluate gradio
 pip install axolotl
 ```
-
----
-
 ---
 
 ## 3) Upload your Excel file
@@ -326,9 +297,6 @@ Use the JupyterLab file browser to upload your `construction.xlsx` into `~/my_pr
 
 Make sure it has the columns:
 "Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"
-
----
-
 ---
 
 ## 4) Convert Excel → JSONL (for training data)
@@ -367,8 +335,6 @@ RUN
 ```bash
 python prepare_data.py
 ```
----
-
 ---
 
 ## 5) Training config (GPT-NeoX-20B)
@@ -416,7 +382,57 @@ save_steps: 200
 eval_steps: 200
 
 ```
+Train 
+```bash
+axolotl train config.yaml
+```
 
+Load GPT-NeoX-20B (quantized)
+Train LoRA adapters on the Excel-derived dataset
+Save to `outputs/neox20b-lora`
 ---
+
+## 6) Chat with the Excel sheet
+
+Create `chat_with_excel.py`:
+```python
+import pandas as pd, torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+from peft import PeftModel
+
+BASE, ADAPTER = "EleutherAI/gpt-neox-20b", "./outputs/neox20b-lora"
+
+bnb = BitsAndBytesConfig(load_in_4bit=True,
+                         bnb_4bit_compute_dtype=torch.bfloat16,
+                         bnb_4bit_quant_type="nf4",
+                         bnb_4bit_use_double_quant=True)
+
+tok = AutoTokenizer.from_pretrained(BASE); tok.pad_token = tok.eos_token
+base = AutoModelForCausalLM.from_pretrained(BASE, quantization_config=bnb, device_map="auto")
+model = PeftModel.from_pretrained(base, ADAPTER)
+device = next(model.parameters()).device
+
+df = pd.read_excel("construction.xlsx").fillna("").astype(str)
+
+def make_prompt(row, question):
+    ctx = "\n".join([f"{c}: {row[c]}" for c in df.columns if row[c].strip()])
+    return f"### Instruction:\n{question}\n\n### Input:\n{ctx}\n\n### Response:\n"
+
+while True:
+    s = input(f"Row index (0–{len(df)-1}) or q: ")
+    if s=="q": break
+    row = df.iloc[int(s)]
+    q = input("Question: ") or "Predict successor and justify."
+    enc = tok(make_prompt(row,q), return_tensors="pt").to(device)
+    out = model.generate(**enc, max_new_tokens=160)
+    print(tok.decode(out[0], skip_special_tokens=True))
+```
+RUN
+```bash
+python chat_with_excel.py
+```
+---
+
+
 
 

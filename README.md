@@ -90,7 +90,7 @@ out_dir.mkdir(exist_ok=True, parents=True)
 
 df = pd.read_excel(xlsx).fillna("").astype(str)
 
-required = ["Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"]]
+required = ["Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"]
 missing = [c for c in required if c not in df.columns]
 if missing:
     raise SystemExit(f"Missing columns: {missing}")
@@ -315,7 +315,7 @@ df = pd.read_excel(xlsx).fillna("").astype(str)
 records = []
 for _, r in df.iterrows():
     instr = "Given the activity details, predict the successor activity."
-    inp = f"ActivityID: {r['ActivityID']}\nActivityName: {r['ActivityName']}\nPredecessor: {r['Predecessor']}"
+    inp = f"Predecessor_id: {r['Predecessor_id']}\Successor_id: {r['Successor_id']}\Relationship_typ: {r['Relationship_typ']}\Predecessor_activ_status: {r['Predecessor_activ_status']}\Successor_activ_status: {r['Successor_activ_status']}\lag(d): {r['lag(d)']}\Predecessor_activ_name: {r['Predecessor_activ_name']}\Successor_activ_name: {r['Successor_activ_name']}"
     outp = r["Successor"].strip()
     if outp: records.append({"instruction": instr, "input": inp, "output": outp})
 

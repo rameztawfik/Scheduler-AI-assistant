@@ -1,4 +1,4 @@
-# config.yaml — tuned for ~8 GB VRAM
+
 base_model: EleutherAI/pythia-2.8b
 
 # 4-bit quantization (QLoRA)

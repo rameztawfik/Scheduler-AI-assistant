@@ -256,6 +256,7 @@ what is the successor and provide a brief rationale.”
 - For fine-tuning large models, you need at least 40–80 GB VRAM. 
   - use can use RUNPod.io, lambda cloud, paperspace or others.
   - **GPU**: A100 80GB is recommended since easiest setup, affordable, works with Hugging Face/Axolotl out of the box.
+- GPT-NeoX-20B was used in this case but I do highly recommend using Mistral since it is from a European company which would have higher level of **Data Privacy**.
 
 ---
 ## 1) Connect to your cloud instance
@@ -297,8 +298,8 @@ pip install axolotl
 
 Use the JupyterLab file browser to upload your `construction.xlsx` into `~/my_project`.
 
-Make sure it has the columns:
-"Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"
+> Make sure it has the columns:
+> "Predecessor_id","Successor_id","Relationship_typ","Predecessor_activ_status","Successor_activ_status","lag(d)","Predecessor_activ_name","Successor_activ_name"
 ---
 
 ## 4) Convert Excel → JSONL (for training data)

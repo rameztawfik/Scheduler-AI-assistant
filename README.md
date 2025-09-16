@@ -5,6 +5,8 @@ Headers naming are very case sensetive.
 
 # Local LLM Fine-Tuning Guide (assumed 8 GB GPU)
 
+> yet not recommended on windows, better Linux or MAC
+
 ## Requirements on local user friendly Laptop/PC
 
 - **OS**: Windows 10/11 (Admin rights required)  
@@ -72,7 +74,7 @@ Place your file as:
 C:\Users\<YOU>\my_project\construction.xlsx
 
 ```
-It must have headers in the exact order (naming could be changed accordinglly):**Predecessor_id, Successor_id, Relationship_typ, Predecessor_activ_status, Successor_activ_status, lag(d), Predecessor_activ_name, Successor_activ_name**
+> It must have headers in the exact order (naming could be changed accordinglly):**Predecessor_id, Successor_id, Relationship_typ, Predecessor_activ_status, Successor_activ_status, lag(d), Predecessor_activ_name, Successor_activ_name**
 ---
 
 ## 4) Make the data converter (Excel → JSONL) // so it can be trained 
